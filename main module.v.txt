@@ -1,0 +1,110 @@
+module main (clk,rst,i_a,i_b,sub,sum,o_res);
+input clk,rst;
+input [15:0] i_a,i_b;
+input sub,sum;
+output reg [15:0] o_res;
+wire [9:0] mantissa_a,mantissa_b;
+wire [9:0] mantissa_1,mantissa_2;
+wire [10:0] mantissa_sum;
+wire [7:0] mantissa_final;
+wire [7:0]  exponent_final;
+wire sign_res;
+wire exception_a,exception_b,zero_a,zero_b;
+wire [15:0] a,b;
+wire [15:0] res;
+assign a = i_a;
+assign b = (sub) ? {~i_b[15], i_b[14:0]} : {i_b[15], i_b[14:0]};
+always @(posedge clk) begin
+    if (rst) begin
+        o_res <= 16'd0;
+    end else if (sum || sub) begin
+        o_res <= res;
+    end
+end
+assign exception_a=(&a[14:7]);
+assign exception_b=(&b[14:7]);
+assign zero_a=!(|a[14:0]);
+assign zero_b=!(|b[14:0]);
+assign mantissa_a = ((|a[14:7]) ? {3'b001,a[6:0]} : {3'b000,a[6:0]});	  	  
+assign mantissa_b = ((|b[14:7]) ? {3'b001,b[6:0]} : {3'b000,b[6:0]});
+wire [7:0] exponent_res;
+compare_and_shift cas(mantissa_a,mantissa_b,a[14:7],b[14:7],exponent_res,mantissa_1,mantissa_2);
+addition add(a[15],b[15],mantissa_1,mantissa_2,mantissa_sum);
+normalisation norm(a[7],b[7],mantissa_sum,exponent_res,mantissa_final,exponent_final,sign_res);
+assign res=(exception_a?{a[15],8'b11111111,7'b0}:
+exception_b?{b[15],8'b11111111,7'b0}
+:zero_a?b:zero_b?a:{sign_res,exponent_final,mantissa_final[6:0]});
+endmodule
+module compare_and_shift(mantissa_a,mantissa_b,ein_a,ein_b,exponent_res,mantissa_1,mantissa_2);
+input [9:0] mantissa_a,mantissa_b;
+input [7:0] ein_a,ein_b;
+output reg [7:0] exponent_res;
+output reg [9:0] mantissa_1,mantissa_2 ;
+always @(*)
+begin
+	if(ein_a==ein_b)
+	begin
+		 mantissa_1=mantissa_a;
+		 mantissa_2=mantissa_b;
+		 exponent_res=ein_a + 1'b1;
+	end
+	else if(ein_a>ein_b)
+	begin
+		mantissa_1=mantissa_a;
+		mantissa_2=(mantissa_b>>(ein_a-ein_b));
+		exponent_res=ein_a + 1'b1;
+	end
+	else
+	begin
+		mantissa_1=(mantissa_a>>(ein_b-ein_a));
+		mantissa_2=mantissa_b;
+		exponent_res=ein_b + 1'b1;
+	end
+end
+endmodule
+module addition(signa,signb,mantissa_1,mantissa_2,mantissa_sum);
+input signa,signb;
+input [9:0] mantissa_1,mantissa_2;
+output [10:0] mantissa_sum;
+wire [9:0] Mantissa_1,Mantissa_2;
+assign Mantissa_1 = (signa?(-mantissa_1):mantissa_1);
+assign Mantissa_2 = (signb?(-mantissa_2):mantissa_2);
+assign mantissa_sum = Mantissa_1+Mantissa_2;
+endmodule 
+module normalisation(signa_int,signb_int,mantissa_sum,exponent_res,mantissa_final,exponent_final,sign_res);
+input [10:0] mantissa_sum;
+input [7:0] exponent_res;
+input signa_int,signb_int;
+output reg [7:0] mantissa_final;
+output reg [7:0] exponent_final;
+output sign_res;
+wire [10:0] Mantissa_sum;
+assign sign_res=mantissa_sum[9];
+assign Mantissa_sum=(mantissa_sum[9]?(-mantissa_sum):mantissa_sum);
+integer i;
+always @(*)
+begin
+	if(Mantissa_sum[9:0]==10'b0)
+	begin
+		mantissa_final=8'b0;
+		exponent_final=8'b0;
+	end
+	else
+	begin
+		mantissa_final=Mantissa_sum[8:1];
+      exponent_final=exponent_res;
+//		if (mantissa_final[7] == 1)
+//		begin
+//		  exponent_final = exponent_final+1'b1;
+//		end 
+        for (i=0; i<8; i=i+1)
+		begin
+         if(mantissa_final[7]==0)
+          begin
+              mantissa_final=(mantissa_final<<1'b1);
+              exponent_final=exponent_final-1'b1;
+          end
+		end
+	end
+end
+endmodule
